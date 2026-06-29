@@ -60,9 +60,44 @@ def _read_rgb(path: str | Path) -> np.ndarray:
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 
+def _fit_display(image_rgb: np.ndarray, max_h: int = 500) -> np.ndarray:
+    """Réduit l'image pour qu'elle tienne entière dans l'éditeur (sans déformer).
+
+    Les vidéos verticales (portrait) sont trop hautes pour la zone de dessin :
+    on limite la hauteur d'affichage. Les coordonnées dessinées sont ensuite
+    remises à l'échelle de la pleine résolution dans `process`.
+    """
+    h, w = image_rgb.shape[:2]
+    if h > max_h:
+        s = max_h / h
+        image_rgb = cv2.resize(image_rgb, (max(1, int(w * s)), max_h),
+                               interpolation=cv2.INTER_AREA)
+    return image_rgb
+
+
 def _editor_value(image_rgb: np.ndarray) -> dict:
     """Construit une valeur de gr.ImageEditor avec l'image en fond."""
     return {"background": image_rgb, "layers": [], "composite": image_rgb}
+
+
+def _editor_bg_shape(value):
+    """Forme (h, w) de l'image affichée dans l'éditeur, ou None."""
+    if not isinstance(value, dict):
+        return None
+    bg = value.get("background")
+    return None if bg is None else np.asarray(bg).shape
+
+
+def _scale_rect(rect, from_shape, to_shape):
+    """Remet un rectangle de l'échelle d'affichage à la pleine résolution."""
+    if rect is None or from_shape is None or to_shape is None:
+        return rect
+    fh, fw = from_shape[0], from_shape[1]
+    th, tw = to_shape[0], to_shape[1]
+    sx, sy = tw / fw, th / fh
+    x, y, w, h = rect
+    return (int(round(x * sx)), int(round(y * sy)),
+            int(round(w * sx)), int(round(h * sy)))
 
 
 def _bbox_from_editor(value) -> tuple[int, int, int, int] | None:
@@ -123,7 +158,11 @@ def on_upload(video_path):
         w = inpaint.feasibility_warning(info)
         if w:
             msg += "\n\n" + w
-    return _editor_value(_read_rgb(first)), _editor_value(_read_rgb(last)), msg
+    return (
+        _editor_value(_fit_display(_read_rgb(first))),
+        _editor_value(_fit_display(_read_rgb(last))),
+        msg,
+    )
 
 
 def process(video_path, editor_first, moving, editor_last, progress=gr.Progress()):
@@ -139,6 +178,14 @@ def process(video_path, editor_first, moving, editor_last, progress=gr.Progress(
     rect1 = _bbox_from_editor(editor_last) if moving else None
     if moving and rect1 is None:
         raise gr.Error("« Filigrane mobile » est coché : dessine aussi la zone sur la dernière image.")
+
+    # Remise à l'échelle : l'éditeur affiche une version réduite (portrait) ->
+    # on repasse les rectangles en pleine résolution avant de générer les masques.
+    full_first = _read_rgb(config.WORK_DIR / "first_frame.png")
+    rect0 = _scale_rect(rect0, _editor_bg_shape(editor_first), full_first.shape)
+    if rect1 is not None:
+        full_last = _read_rgb(config.WORK_DIR / "last_frame.png")
+        rect1 = _scale_rect(rect1, _editor_bg_shape(editor_last), full_last.shape)
 
     progress(0.05, "Extraction des frames…")
     info = extract.extract_frames(video_path)
