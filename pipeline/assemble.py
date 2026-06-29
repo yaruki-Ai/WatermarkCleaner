@@ -31,6 +31,8 @@ def finalize(frames_dir: str | Path, info: VideoInfo, out_name: str) -> str:
         "-framerate", f"{info.fps}",
         "-start_number", "0",
         "-i", str(frames_dir / "frame_%06d.png"),
+        # H.264/yuv420p exige des dimensions paires -> on arrondit au pair inférieur.
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
         "-c:v", "libx264", "-pix_fmt", "yuv420p",
         "-crf", "16",  # haute qualité
         str(silent),
