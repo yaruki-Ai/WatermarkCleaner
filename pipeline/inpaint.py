@@ -68,38 +68,34 @@ def run_propainter(info: VideoInfo, progress: Optional[ProgressFn] = None) -> st
         cmd.append("--fp16")
 
     if progress:
-        progress(0.05, f"ProPainter démarre (chunks de {subvideo_len} frames, fp16={config.USE_FP16})…")
+        progress(0.3, f"ProPainter en cours (chunks de {subvideo_len} frames, fp16={config.USE_FP16})… "
+                      "Étape longue, sois patient.")
 
     # cwd = dossier ProPainter pour qu'il trouve ses poids/relatifs.
-    proc = subprocess.Popen(
+    # On capture TOUTE la sortie (stdout + stderr) pour un diagnostic fiable.
+    proc = subprocess.run(
         cmd, cwd=str(pp_dir),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, bufsize=1,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True,
     )
 
-    tail: list[str] = []
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        line = line.rstrip()
-        if not line:
-            continue
-        tail.append(line)
-        tail[:] = tail[-40:]  # garde les 40 dernières lignes pour le diagnostic
-        if progress:
-            # Progression grossière : on relaie la dernière ligne utile.
-            progress(0.5, line[:120])
-
-    proc.wait()
-
     if proc.returncode != 0:
-        log = "\n".join(tail)
-        if "out of memory" in log.lower() or "cuda oom" in log.lower():
+        log = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        log = log.strip() or "(aucune sortie capturée — voir la sortie de la cellule Colab)"
+        print("===== SORTIE PROPAINTER (échec) =====")
+        print(log)
+        print("=====================================")
+        low = log.lower()
+        if "out of memory" in low or "cuda oom" in low:
             raise RuntimeError(
                 "❌ Dépassement mémoire GPU (out-of-memory). "
                 "La vidéo est trop grosse pour le T4. Réduis la résolution "
-                "(1080p ou 720p) ou raccourcis la vidéo, puis réessaie.\n\n" + log
+                "(1080p ou 720p) ou raccourcis la vidéo, puis réessaie."
             )
-        raise RuntimeError("❌ ProPainter a échoué :\n" + log)
+        # On renvoie les dernières lignes dans l'UI (les plus parlantes).
+        tail = "\n".join(log.splitlines()[-15:])
+        raise RuntimeError("❌ ProPainter a échoué (code "
+                           f"{proc.returncode}) :\n{tail}")
 
     # ProPainter écrit dans {output}/{nom_du_dossier_video}/inpaint_out.mp4.
     # Le dossier d'entrée s'appelle "frames" -> sortie dans pp_out/frames/.
