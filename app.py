@@ -18,6 +18,33 @@ import cv2
 import gradio as gr
 import numpy as np
 
+# --------------------------------------------------------------------------- #
+# Correctif d'un bug connu de gradio_client sur Colab :
+# json_schema_to_python_type plante ("argument of type 'bool' is not iterable")
+# quand un schéma JSON vaut True/False au lieu d'un dict. On court-circuite ce cas.
+# --------------------------------------------------------------------------- #
+import gradio_client.utils as _gcu
+
+_orig_j2pt = _gcu._json_schema_to_python_type
+_orig_get_type = _gcu.get_type
+
+
+def _safe_j2pt(schema, defs=None):
+    if isinstance(schema, bool):
+        return "Any"
+    return _orig_j2pt(schema, defs)
+
+
+def _safe_get_type(schema):
+    if not isinstance(schema, dict):
+        return "Any"
+    return _orig_get_type(schema)
+
+
+_gcu._json_schema_to_python_type = _safe_j2pt
+_gcu.get_type = _safe_get_type
+# --------------------------------------------------------------------------- #
+
 import config
 from pipeline import extract, mask, inpaint, assemble
 
