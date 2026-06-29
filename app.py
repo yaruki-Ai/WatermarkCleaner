@@ -193,15 +193,9 @@ def process(video_path, editor_first, moving, progress=gr.Progress()):
     out_name = Path(video_path).stem + "_clean.mp4"
     final = assemble.finalize(out_video, info, out_name)
 
-    # Aperçu avant / après (première frame de chaque).
-    before = _read_rgb(config.WORK_DIR / "first_frame.png")
-    after_path = config.WORK_DIR / "after_frame.png"
-    extract.extract_first_frame(final, after_path)
-    after = _read_rgb(after_path)
-
     progress(1.0, "Terminé ✅")
-    status = f"✅ Vidéo nettoyée enregistrée sur Drive : {final}"
-    return before, after, final, final, status
+    status = f"✅ Terminé ! Vidéo nettoyée aussi sauvegardée sur ton Drive :\n`{final}`"
+    return final, status
 
 
 # --------------------------------------------------------------------------- #
@@ -234,14 +228,8 @@ def build_ui() -> gr.Blocks:
 
         run_btn = gr.Button("3. Lancer le traitement 🚀", variant="primary")
 
-        gr.Markdown("### Aperçu avant / après")
-        with gr.Row():
-            before_img = gr.Image(label="Avant", type="numpy")
-            after_img = gr.Image(label="Après", type="numpy")
-
-        with gr.Row():
-            video_out = gr.Video(label="Vidéo nettoyée")
-            file_out = gr.File(label="4. Télécharger la vidéo nettoyée")
+        gr.Markdown("### Résultat")
+        video_out = gr.Video(label="Vidéo nettoyée (clique pour télécharger)")
 
         # --- Liaisons ---
         video_in.change(
@@ -251,7 +239,7 @@ def build_ui() -> gr.Blocks:
         run_btn.click(
             process,
             inputs=[video_in, editor_first, moving],
-            outputs=[before_img, after_img, video_out, file_out, status],
+            outputs=[video_out, status],
         )
 
     return demo
