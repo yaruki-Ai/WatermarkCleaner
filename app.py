@@ -138,34 +138,28 @@ def _bbox_from_editor(value) -> tuple[int, int, int, int] | None:
 # --------------------------------------------------------------------------- #
 
 def on_upload(video_path):
-    """À l'upload : extrait première et dernière frames, prépare les éditeurs."""
+    """À l'upload : extrait la première frame et la prépare pour le dessin."""
     if not video_path:
-        return None, None, "Aucune vidéo chargée."
+        return None, "Aucune vidéo chargée."
     config.ensure_dirs()
     first = config.WORK_DIR / "first_frame.png"
-    last = config.WORK_DIR / "last_frame.png"
     extract.extract_first_frame(video_path, first)
-    extract.extract_last_frame(video_path, last)
     info = None
     try:
         from pipeline.utils import probe
         info = probe(video_path)
     except Exception:
         pass
-    msg = "✅ Vidéo chargée. Dessine la zone du filigrane sur l'image."
+    msg = "✅ Vidéo chargée. Peins (au pinceau) par-dessus le filigrane sur l'image."
     if info:
         msg += f"  ({info.width}x{info.height}, {info.fps:.1f} fps, ~{info.n_frames} frames)"
         w = inpaint.feasibility_warning(info)
         if w:
             msg += "\n\n" + w
-    return (
-        _editor_value(_fit_display(_read_rgb(first))),
-        _editor_value(_fit_display(_read_rgb(last))),
-        msg,
-    )
+    return _editor_value(_fit_display(_read_rgb(first))), msg
 
 
-def process(video_path, editor_first, moving, editor_last, progress=gr.Progress()):
+def process(video_path, editor_first, moving, progress=gr.Progress()):
     """Pipeline complet, avec barre de progression."""
     if not video_path:
         raise gr.Error("Glisse-dépose une vidéo d'abord.")
@@ -174,24 +168,20 @@ def process(video_path, editor_first, moving, editor_last, progress=gr.Progress(
 
     rect0 = _bbox_from_editor(editor_first)
     if rect0 is None:
-        raise gr.Error("Dessine la zone du filigrane (au pinceau) sur la première image.")
-    rect1 = _bbox_from_editor(editor_last) if moving else None
-    if moving and rect1 is None:
-        raise gr.Error("« Filigrane mobile » est coché : dessine aussi la zone sur la dernière image.")
+        raise gr.Error("Peins (au pinceau) par-dessus le filigrane sur l'image.")
 
     # Remise à l'échelle : l'éditeur affiche une version réduite (portrait) ->
-    # on repasse les rectangles en pleine résolution avant de générer les masques.
+    # on repasse le rectangle en pleine résolution avant de générer les masques.
     full_first = _read_rgb(config.WORK_DIR / "first_frame.png")
     rect0 = _scale_rect(rect0, _editor_bg_shape(editor_first), full_first.shape)
-    if rect1 is not None:
-        full_last = _read_rgb(config.WORK_DIR / "last_frame.png")
-        rect1 = _scale_rect(rect1, _editor_bg_shape(editor_last), full_last.shape)
 
     progress(0.05, "Extraction des frames…")
     info = extract.extract_frames(video_path)
 
-    progress(0.15, "Génération des masques…")
-    n = mask.generate_masks(rect0, rect1)
+    progress(0.15, "Génération des masques (suivi du filigrane)…" if moving
+             else "Génération des masques…")
+    # moving = le filigrane bouge -> suivi automatique (template matching).
+    n = mask.generate_masks(rect0, track=bool(moving))
     progress(0.2, f"{n} masques générés. Inpainting ProPainter…")
 
     def pcb(frac, msg):
@@ -231,18 +221,16 @@ def build_ui() -> gr.Blocks:
         with gr.Row():
             video_in = gr.Video(label="1. Vidéo à nettoyer", sources=["upload"])
 
-        with gr.Row():
-            editor_first = gr.ImageEditor(
-                label="2. Dessine la zone du filigrane (première frame)",
-                type="numpy", brush=gr.Brush(colors=["#FF0000"], default_size=25),
-            )
-            editor_last = gr.ImageEditor(
-                label="Zone sur la dernière frame (filigrane mobile)",
-                type="numpy", brush=gr.Brush(colors=["#FF0000"], default_size=25),
-                visible=False,
-            )
+        editor_first = gr.ImageEditor(
+            label="2. Peins par-dessus le filigrane (au pinceau)",
+            type="numpy", brush=gr.Brush(colors=["#FF0000"], default_size=25),
+        )
 
-        moving = gr.Checkbox(label="Le filigrane se déplace (interpolation entre 2 positions)", value=False)
+        moving = gr.Checkbox(
+            label="Le filigrane se déplace (suivi automatique image par image)",
+            value=False,
+            info="Coche si le filigrane bouge dans la vidéo. Peins-le bien serré pour un meilleur suivi.",
+        )
 
         run_btn = gr.Button("3. Lancer le traitement 🚀", variant="primary")
 
@@ -258,14 +246,11 @@ def build_ui() -> gr.Blocks:
         # --- Liaisons ---
         video_in.change(
             on_upload, inputs=video_in,
-            outputs=[editor_first, editor_last, status],
-        )
-        moving.change(
-            lambda m: gr.update(visible=m), inputs=moving, outputs=editor_last,
+            outputs=[editor_first, status],
         )
         run_btn.click(
             process,
-            inputs=[video_in, editor_first, moving, editor_last],
+            inputs=[video_in, editor_first, moving],
             outputs=[before_img, after_img, video_out, file_out, status],
         )
 

@@ -48,18 +48,49 @@ def _render_mask(width: int, height: int, rect: tuple[int, int, int, int]) -> np
     return mask
 
 
+# Confiance minimale du suivi (template matching). En dessous, on conserve la
+# dernière position connue pour éviter que le masque ne saute n'importe où.
+TRACK_CONFIDENCE = 0.30
+
+
+def _track_positions(frames, r0, width, height):
+    """Suit le filigrane sur toutes les frames par template matching.
+
+    Le rectangle peint sur la 1re frame sert de modèle (template). Sur chaque
+    frame suivante on cherche où ce modèle réapparaît -> le masque suit le
+    filigrane même s'il se déplace partout. Renvoie la liste des rectangles.
+    """
+    x, y, rw, rh = r0
+    first_gray = cv2.cvtColor(cv2.imread(str(frames[0])), cv2.COLOR_BGR2GRAY)
+    template = first_gray[y:y + rh, x:x + rw]
+
+    rects = []
+    cx, cy = x, y
+    for frame_path in frames:
+        gray = cv2.cvtColor(cv2.imread(str(frame_path)), cv2.COLOR_BGR2GRAY)
+        # matchTemplate exige template <= image ; garanti par _clamp_rect.
+        res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, max_loc = cv2.minMaxLoc(res)
+        if max_val >= TRACK_CONFIDENCE:
+            cx, cy = max_loc  # (x, y) du coin haut-gauche trouvé
+        rects.append(_clamp_rect((cx, cy, rw, rh), width, height))
+    return rects
+
+
 def generate_masks(
     rect_start: Rect,
     rect_end: Optional[Rect] = None,
+    track: bool = False,
     frames_dir: str | Path = None,
     masks_dir: str | Path = None,
 ) -> int:
     """
     Génère un masque PNG par frame.
 
-    - rect_start seul -> masque fixe identique sur toutes les frames.
-    - rect_start + rect_end -> filigrane mobile : interpolation linéaire de la
-      position du rectangle entre la première et la dernière frame.
+    - track=False, rect_start seul -> masque fixe (filigrane immobile).
+    - track=False, rect_start + rect_end -> interpolation linéaire entre 2 positions.
+    - track=True -> suivi automatique du filigrane par template matching
+      (gère un filigrane qui se déplace partout, à partir d'un seul dessin).
 
     Renvoie le nombre de masques générés.
     """
@@ -79,8 +110,12 @@ def generate_masks(
     r0 = _clamp_rect(rect_start, width, height)
     r1 = _clamp_rect(rect_end, width, height) if rect_end is not None else None
 
+    tracked = _track_positions(frames, r0, width, height) if track else None
+
     for i, frame_path in enumerate(frames):
-        if r1 is None:
+        if tracked is not None:
+            rect = tracked[i]
+        elif r1 is None:
             rect = r0
         else:
             t = i / max(1, n - 1)
