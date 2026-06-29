@@ -53,6 +53,21 @@ MASK_BLUR_KERNEL = 9
 # Réglages VRAM / chunking (GPU T4 ~15 Go)
 # --------------------------------------------------------------------------- #
 
+# Colab gratuit n'a que ~12 Go de RAM système. ProPainter charge beaucoup de
+# frames en mémoire (calcul du flux optique) -> on PLAFONNE la résolution de
+# traitement pour éviter que le système ne tue le process (erreur "code -9").
+# Le plus grand côté de l'image est ramené à cette taille avant traitement.
+MAX_PROCESS_SIDE = 640
+
+
+def resize_ratio_for(width: int, height: int) -> float:
+    """Facteur de réduction pour ramener le plus grand côté à MAX_PROCESS_SIDE."""
+    longest = max(width, height)
+    if longest <= MAX_PROCESS_SIDE:
+        return 1.0
+    return round(MAX_PROCESS_SIDE / longest, 4)
+
+
 # ProPainter traite la vidéo par "sous-vidéos" (subvideo_length frames à la fois).
 # Plus la résolution est haute, plus on réduit ce nombre pour tenir dans la VRAM.
 # Le seuil est basé sur le nombre de pixels par frame (largeur * hauteur).

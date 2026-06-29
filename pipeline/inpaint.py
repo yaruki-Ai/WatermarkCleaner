@@ -51,7 +51,11 @@ def run_propainter(info: VideoInfo, progress: Optional[ProgressFn] = None) -> st
             "Lance d'abord la cellule de clonage de ProPainter dans le notebook."
         )
 
-    subvideo_len = config.subvideo_length_for(info.width, info.height)
+    # On réduit la résolution de traitement pour tenir dans la RAM de Colab.
+    ratio = config.resize_ratio_for(info.width, info.height)
+    proc_w = int(round(info.width * ratio))
+    proc_h = int(round(info.height * ratio))
+    subvideo_len = config.subvideo_length_for(proc_w, proc_h)
     out_root = Path(config.PROPAINTER_OUT_DIR)
     out_root.mkdir(parents=True, exist_ok=True)
 
@@ -64,11 +68,14 @@ def run_propainter(info: VideoInfo, progress: Optional[ProgressFn] = None) -> st
         "--save_fps", str(int(round(info.fps))),
         "--save_frames",
     ]
+    if ratio < 1.0:
+        cmd += ["--resize_ratio", str(ratio)]
     if config.USE_FP16:
         cmd.append("--fp16")
 
     if progress:
-        progress(0.3, f"ProPainter en cours (chunks de {subvideo_len} frames, fp16={config.USE_FP16})… "
+        res_msg = f"{proc_w}x{proc_h}" if ratio < 1.0 else "résolution d'origine"
+        progress(0.3, f"ProPainter en cours ({res_msg}, chunks de {subvideo_len} frames)… "
                       "Étape longue, sois patient.")
 
     # cwd = dossier ProPainter pour qu'il trouve ses poids/relatifs.
@@ -86,11 +93,17 @@ def run_propainter(info: VideoInfo, progress: Optional[ProgressFn] = None) -> st
         print(log)
         print("=====================================")
         low = log.lower()
+        # code -9 = tué par le système (SIGKILL), quasi toujours un manque de RAM.
+        if proc.returncode == -9 or "killed" in low:
+            raise RuntimeError(
+                "❌ Manque de mémoire : Colab a tué le traitement (code -9). "
+                f"Résolution de traitement utilisée : {proc_w}x{proc_h}. "
+                "Raccourcis la vidéo, ou réduis encore MAX_PROCESS_SIDE dans config.py."
+            )
         if "out of memory" in low or "cuda oom" in low:
             raise RuntimeError(
                 "❌ Dépassement mémoire GPU (out-of-memory). "
-                "La vidéo est trop grosse pour le T4. Réduis la résolution "
-                "(1080p ou 720p) ou raccourcis la vidéo, puis réessaie."
+                "Réduis la résolution ou raccourcis la vidéo, puis réessaie."
             )
         # On renvoie les dernières lignes dans l'UI (les plus parlantes).
         tail = "\n".join(log.splitlines()[-15:])
