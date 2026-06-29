@@ -182,6 +182,7 @@ def process(video_path, auto_detect, editor_first, moving, progress=gr.Progress(
         progress(0.08, "Détection automatique du texte (OCR)… première fois = téléchargement du modèle.")
         n = detect.detect_text_masks(
             progress=lambda f, m: progress(0.08 + f * 0.17, m))
+        detect.release()  # libère la VRAM d'EasyOCR avant ProPainter
     else:
         progress(0.1, "Génération des masques (suivi du filigrane)…" if moving
                  else "Génération des masques…")

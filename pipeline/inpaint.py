@@ -8,6 +8,7 @@ un appel ProPainter séparé. Les frames nettoyées sont ensuite réassemblées.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -60,7 +61,11 @@ def _run_pp_segment(pp_dir, in_frames, in_masks, out_root, ratio, subvideo_len, 
     if config.USE_FP16:
         cmd.append("--fp16")
 
-    proc = subprocess.run(cmd, cwd=str(pp_dir),
+    # Réduit la fragmentation VRAM (recommandé par PyTorch en cas d'OOM).
+    env = dict(os.environ)
+    env["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+    proc = subprocess.run(cmd, cwd=str(pp_dir), env=env,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if proc.returncode != 0:

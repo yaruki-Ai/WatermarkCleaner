@@ -73,9 +73,10 @@ OCR_CONFIDENCE = 0.25
 SEGMENT_SIZE = 80
 SEGMENT_OVERLAP = 10
 
-# Plafond de résolution de traitement. 1280 = bonne qualité tout en restant gérable.
-# Mets une valeur plus haute (ex. 1920) pour la résolution native, plus basse si OOM.
-MAX_PROCESS_SIDE = 1280
+# Plafond de résolution de traitement. Le calcul de flux optique (RAFT) de
+# ProPainter est très gourmand en VRAM : 720 tient sur un T4. Monte (960, 1280)
+# si ça passe et que tu veux plus de qualité ; descends (512) si OOM GPU.
+MAX_PROCESS_SIDE = 720
 
 
 def resize_ratio_for(width: int, height: int) -> float:
@@ -93,14 +94,14 @@ def subvideo_length_for(width: int, height: int) -> int:
     """Nombre de frames traitées simultanément par ProPainter selon la résolution."""
     pixels = width * height
     if pixels <= 640 * 480:        # SD
-        return 80
-    if pixels <= 1280 * 720:       # 720p
-        return 60
-    if pixels <= 1920 * 1080:      # 1080p
         return 40
+    if pixels <= 1280 * 720:       # 720p
+        return 30
+    if pixels <= 1920 * 1080:      # 1080p
+        return 20
     if pixels <= 2560 * 1440:      # 1440p
-        return 24
-    return 16                      # 4K et au-delà (risqué)
+        return 12
+    return 8                       # 4K et au-delà (risqué)
 
 # Au-delà de cette résolution, on prévient l'utilisateur que ça risque l'OOM.
 MAX_SAFE_PIXELS = 3840 * 2160      # 4K

@@ -33,6 +33,20 @@ def _get_reader(langs: Sequence[str]):
     return _reader
 
 
+def release() -> None:
+    """Libère la mémoire GPU prise par EasyOCR (avant de lancer ProPainter)."""
+    global _reader
+    _reader = None
+    try:
+        import gc
+        import torch
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+
 def _refine_mask(mask: np.ndarray) -> np.ndarray:
     """Dilatation + flou des bords, comme pour les masques manuels."""
     if config.MASK_DILATION > 0:
