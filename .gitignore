@@ -1,0 +1,23 @@
+# Données de travail / sorties (jamais commitées)
+work/
+results/
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+
+# ProPainter cloné dans la session Colab (pas dans le repo)
+ProPainter/
+weights/
+
+# Python
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db

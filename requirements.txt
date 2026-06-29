@@ -1,0 +1,10 @@
+# Dépendances WatermarkCleaner
+# NOTE : torch / torchvision / CUDA / ffmpeg sont DÉJÀ fournis par Colab -> ne pas les réinstaller.
+# Les dépendances spécifiques à ProPainter sont installées séparément via ProPainter/requirements.txt
+# (voir la cellule d'installation du notebook).
+
+gradio>=4.19,<5
+opencv-python-headless>=4.8
+Pillow>=9.5
+numpy>=1.24
+tqdm>=4.65
