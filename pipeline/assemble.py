@@ -1,31 +1,46 @@
-"""Étape 4 — Réassemblage final : remux de l'audio original sur la vidéo nettoyée."""
+"""Étape 4 — Réassemblage : frames nettoyées -> vidéo + remux de l'audio original."""
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import config
-from .utils import VideoInfo, run
+from .utils import VideoInfo, list_frames, run
 
 
-def finalize(inpainted_video: str | Path, info: VideoInfo, out_name: str) -> str:
+def finalize(frames_dir: str | Path, info: VideoInfo, out_name: str) -> str:
     """
-    Recolle l'audio original sur la vidéo inpaintée et écrit le résultat final
-    sur Google Drive (config.RESULTS_DIR).
+    Reconstruit la vidéo depuis le dossier de frames nettoyées, recolle l'audio
+    original, et écrit le résultat final sur Google Drive (config.RESULTS_DIR).
 
     Renvoie le chemin de la vidéo finale.
     """
+    frames_dir = Path(frames_dir)
+    frames = list_frames(frames_dir)
+    if not frames:
+        raise RuntimeError(f"Aucune frame nettoyée trouvée dans {frames_dir}.")
+
     config.RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = config.RESULTS_DIR / out_name
 
-    has_audio = info.has_audio and Path(config.AUDIO_PATH).exists()
+    # Vidéo silencieuse depuis les frames (frame_000000.png, frame_000001.png, …).
+    silent = Path(config.WORK_DIR) / "inpainted_silent.mp4"
+    if silent.exists():
+        silent.unlink()
+    run([
+        "ffmpeg", "-y",
+        "-framerate", f"{info.fps}",
+        "-start_number", "0",
+        "-i", str(frames_dir / "frame_%06d.png"),
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-crf", "16",  # haute qualité
+        str(silent),
+    ])
 
+    has_audio = info.has_audio and Path(config.AUDIO_PATH).exists()
     if has_audio:
-        # Mux : flux vidéo de la sortie ProPainter + flux audio original.
-        # -shortest pour aligner sur la plus courte des deux pistes.
         run([
             "ffmpeg", "-y",
-            "-i", str(inpainted_video),
+            "-i", str(silent),
             "-i", str(config.AUDIO_PATH),
             "-map", "0:v:0", "-map", "1:a:0",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
@@ -33,7 +48,7 @@ def finalize(inpainted_video: str | Path, info: VideoInfo, out_name: str) -> str
             str(out_path),
         ])
     else:
-        # Pas d'audio : simple copie de la vidéo nettoyée vers Drive.
-        shutil.copy2(str(inpainted_video), str(out_path))
+        import shutil
+        shutil.copy2(str(silent), str(out_path))
 
     return str(out_path)

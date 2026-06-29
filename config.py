@@ -53,11 +53,29 @@ MASK_BLUR_KERNEL = 9
 # Réglages VRAM / chunking (GPU T4 ~15 Go)
 # --------------------------------------------------------------------------- #
 
-# Colab gratuit n'a que ~12 Go de RAM système. ProPainter charge beaucoup de
-# frames en mémoire (calcul du flux optique) -> on PLAFONNE la résolution de
-# traitement pour éviter que le système ne tue le process (erreur "code -9").
-# Le plus grand côté de l'image est ramené à cette taille avant traitement.
-MAX_PROCESS_SIDE = 640
+# --------------------------------------------------------------------------- #
+# Détection automatique du texte (OCR)
+# --------------------------------------------------------------------------- #
+
+# Langues reconnues par EasyOCR pour repérer le texte/filigranes.
+OCR_LANGS = ["en", "fr"]
+
+# Confiance minimale d'une détection de texte pour la masquer (0..1).
+OCR_CONFIDENCE = 0.25
+
+# --------------------------------------------------------------------------- #
+# Traitement par segments (qualité préservée, RAM maîtrisée)
+# --------------------------------------------------------------------------- #
+
+# Pour garder la pleine qualité SANS saturer la RAM (~12 Go sur Colab gratuit),
+# on traite la vidéo par tranches de N frames, avec un petit recouvrement entre
+# tranches pour éviter les ruptures visibles.
+SEGMENT_SIZE = 80
+SEGMENT_OVERLAP = 10
+
+# Plafond de résolution de traitement. 1280 = bonne qualité tout en restant gérable.
+# Mets une valeur plus haute (ex. 1920) pour la résolution native, plus basse si OOM.
+MAX_PROCESS_SIDE = 1280
 
 
 def resize_ratio_for(width: int, height: int) -> float:

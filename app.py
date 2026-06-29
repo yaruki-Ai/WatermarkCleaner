@@ -46,7 +46,7 @@ _gcu.get_type = _safe_get_type
 # --------------------------------------------------------------------------- #
 
 import config
-from pipeline import extract, mask, inpaint, assemble
+from pipeline import extract, mask, detect, inpaint, assemble
 
 
 # --------------------------------------------------------------------------- #
@@ -159,39 +159,43 @@ def on_upload(video_path):
     return _editor_value(_fit_display(_read_rgb(first))), msg
 
 
-def process(video_path, editor_first, moving, progress=gr.Progress()):
+def process(video_path, auto_detect, editor_first, moving, progress=gr.Progress()):
     """Pipeline complet, avec barre de progression."""
     if not video_path:
         raise gr.Error("Glisse-dépose une vidéo d'abord.")
 
     config.ensure_dirs()
 
-    rect0 = _bbox_from_editor(editor_first)
-    if rect0 is None:
-        raise gr.Error("Peins (au pinceau) par-dessus le filigrane sur l'image.")
+    # En mode manuel, on récupère/recalibre le rectangle AVANT l'extraction.
+    rect0 = None
+    if not auto_detect:
+        rect0 = _bbox_from_editor(editor_first)
+        if rect0 is None:
+            raise gr.Error("Décoche la détection auto + peins la zone, ou laisse la détection auto cochée.")
+        full_first = _read_rgb(config.WORK_DIR / "first_frame.png")
+        rect0 = _scale_rect(rect0, _editor_bg_shape(editor_first), full_first.shape)
 
-    # Remise à l'échelle : l'éditeur affiche une version réduite (portrait) ->
-    # on repasse le rectangle en pleine résolution avant de générer les masques.
-    full_first = _read_rgb(config.WORK_DIR / "first_frame.png")
-    rect0 = _scale_rect(rect0, _editor_bg_shape(editor_first), full_first.shape)
-
-    progress(0.05, "Extraction des frames…")
+    progress(0.03, "Extraction des frames…")
     info = extract.extract_frames(video_path)
 
-    progress(0.15, "Génération des masques (suivi du filigrane)…" if moving
-             else "Génération des masques…")
-    # moving = le filigrane bouge -> suivi automatique (template matching).
-    n = mask.generate_masks(rect0, track=bool(moving))
-    progress(0.2, f"{n} masques générés. Inpainting ProPainter…")
+    if auto_detect:
+        progress(0.08, "Détection automatique du texte (OCR)… première fois = téléchargement du modèle.")
+        n = detect.detect_text_masks(
+            progress=lambda f, m: progress(0.08 + f * 0.17, m))
+    else:
+        progress(0.1, "Génération des masques (suivi du filigrane)…" if moving
+                 else "Génération des masques…")
+        n = mask.generate_masks(rect0, track=bool(moving))
+    progress(0.27, f"{n} masques générés. Inpainting par segments…")
 
     def pcb(frac, msg):
-        progress(min(0.9, 0.2 + frac * 0.65), msg)
+        progress(min(0.9, 0.27 + frac * 0.6), msg)
 
-    out_video = inpaint.run_propainter(info, pcb)
+    frames_dir = inpaint.run_propainter(info, pcb)
 
-    progress(0.92, "Réassemblage + audio original…")
+    progress(0.93, "Réassemblage + audio original…")
     out_name = Path(video_path).stem + "_clean.mp4"
-    final = assemble.finalize(out_video, info, out_name)
+    final = assemble.finalize(frames_dir, info, out_name)
 
     progress(1.0, "Terminé ✅")
     status = f"✅ Terminé ! Vidéo nettoyée aussi sauvegardée sur ton Drive :\n`{final}`"
@@ -206,8 +210,9 @@ def build_ui() -> gr.Blocks:
     with gr.Blocks(title="WatermarkCleaner") as demo:
         gr.Markdown(
             "# 🎬 WatermarkCleaner\n"
-            "Supprime un filigrane d'une vidéo (inpainting IA via ProPainter, GPU gratuit Colab).\n\n"
-            "**Étapes :** upload → dessine la zone du filigrane au pinceau → lance → télécharge."
+            "Supprime les filigranes/texte d'une vidéo (inpainting IA via ProPainter, GPU gratuit Colab).\n\n"
+            "**Étapes :** upload → lance (la détection auto repère tout le texte) → télécharge.\n"
+            "Traitement par segments en pleine qualité ; le résultat est aussi sauvegardé sur ton Drive."
         )
 
         status = gr.Markdown("Charge une vidéo pour commencer.")
@@ -215,18 +220,25 @@ def build_ui() -> gr.Blocks:
         with gr.Row():
             video_in = gr.Video(label="1. Vidéo à nettoyer", sources=["upload"])
 
-        editor_first = gr.ImageEditor(
-            label="2. Peins par-dessus le filigrane (au pinceau)",
-            type="numpy", brush=gr.Brush(colors=["#FF0000"], default_size=25),
+        auto_detect = gr.Checkbox(
+            label="✨ Détecter automatiquement TOUT le texte (recommandé — rien à dessiner)",
+            value=True,
+            info="Détecte et efface tout texte/filigrane qui apparaît, n'importe où, n'importe quand. "
+                 "Décoche seulement si le filigrane est un logo/image (pas du texte).",
         )
 
-        moving = gr.Checkbox(
-            label="Le filigrane se déplace (suivi automatique image par image)",
-            value=False,
-            info="Coche si le filigrane bouge dans la vidéo. Peins-le bien serré pour un meilleur suivi.",
-        )
+        with gr.Group(visible=False) as manual_group:
+            editor_first = gr.ImageEditor(
+                label="Peins par-dessus le filigrane (mode manuel)",
+                type="numpy", brush=gr.Brush(colors=["#FF0000"], default_size=25),
+            )
+            moving = gr.Checkbox(
+                label="Le filigrane se déplace (suivi automatique image par image)",
+                value=False,
+                info="Coche si le filigrane bouge. Peins-le bien serré pour un meilleur suivi.",
+            )
 
-        run_btn = gr.Button("3. Lancer le traitement 🚀", variant="primary")
+        run_btn = gr.Button("2. Lancer le traitement 🚀", variant="primary")
 
         gr.Markdown("### Résultat")
         video_out = gr.Video(label="Vidéo nettoyée (clique pour télécharger)")
@@ -236,9 +248,13 @@ def build_ui() -> gr.Blocks:
             on_upload, inputs=video_in,
             outputs=[editor_first, status],
         )
+        # Mode manuel visible seulement si la détection auto est décochée.
+        auto_detect.change(
+            lambda a: gr.update(visible=not a), inputs=auto_detect, outputs=manual_group,
+        )
         run_btn.click(
             process,
-            inputs=[video_in, editor_first, moving],
+            inputs=[video_in, auto_detect, editor_first, moving],
             outputs=[video_out, status],
         )
 
