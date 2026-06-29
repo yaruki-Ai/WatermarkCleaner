@@ -3,7 +3,10 @@
 # Les dépendances spécifiques à ProPainter sont installées séparément via ProPainter/requirements.txt
 # (voir la cellule d'installation du notebook).
 
-gradio>=4.19,<5
+# gradio 4.44.1 importe HfFolder depuis huggingface_hub -> on fige une version de
+# huggingface_hub qui le contient encore (les versions >=1.0 l'ont supprimé).
+gradio==4.44.1
+huggingface_hub==0.25.2
 opencv-python-headless>=4.8
 Pillow>=9.5
 numpy>=1.24
