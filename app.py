@@ -46,7 +46,7 @@ _gcu.get_type = _safe_get_type
 # --------------------------------------------------------------------------- #
 
 import config
-from pipeline import extract, mask, detect, inpaint, enhance, assemble
+from pipeline import extract, mask, detect, inpaint, enhance, assemble, notify
 
 
 # --------------------------------------------------------------------------- #
@@ -159,8 +159,22 @@ def on_upload(video_path):
     return _editor_value(_fit_display(_read_rgb(first))), msg
 
 
-def process(video_path, auto_detect, sharpen, editor_first, moving, progress=gr.Progress()):
-    """Pipeline complet, avec barre de progression."""
+def process(video_path, auto_detect, sharpen, email, app_pw,
+            editor_first, moving, progress=gr.Progress()):
+    """Pipeline complet, avec email de notification optionnel (succès ET échec)."""
+    try:
+        final, status = _run(video_path, auto_detect, sharpen, editor_first, moving, progress)
+    except Exception as e:
+        notify.try_send(email, app_pw, "❌ WatermarkCleaner — échec",
+                        f"Le traitement a échoué :\n\n{e}")
+        raise
+    notify.try_send(email, app_pw, "✅ WatermarkCleaner — terminé",
+                    f"Ta vidéo nettoyée est prête :\n{final}\n\n"
+                    "Elle est aussi dans ton Google Drive (WatermarkCleaner/results).")
+    return final, status
+
+
+def _run(video_path, auto_detect, sharpen, editor_first, moving, progress):
     if not video_path:
         raise gr.Error("Glisse-dépose une vidéo d'abord.")
 
@@ -258,6 +272,18 @@ def build_ui() -> gr.Blocks:
             info="Réduit le flou des zones nettoyées. Plus lent. Décoche si artefacts.",
         )
 
+        with gr.Accordion("🔔 Me prévenir par email à la fin (optionnel)", open=False):
+            gr.Markdown(
+                "Reçois un email quand c'est fini (succès **ou** échec). "
+                "Il faut un **« mot de passe d'application » Gmail** "
+                "([le créer ici](https://myaccount.google.com/apppasswords) — "
+                "nécessite la validation en 2 étapes activée). Ton mot de passe "
+                "n'est utilisé que pour cette session, jamais enregistré."
+            )
+            email_to = gr.Textbox(label="Ton adresse Gmail", placeholder="exemple@gmail.com")
+            app_pw = gr.Textbox(label="Mot de passe d'application (16 caractères)",
+                                type="password", placeholder="xxxx xxxx xxxx xxxx")
+
         run_btn = gr.Button("2. Lancer le traitement 🚀", variant="primary")
 
         gr.Markdown("### Résultat")
@@ -274,7 +300,7 @@ def build_ui() -> gr.Blocks:
         )
         run_btn.click(
             process,
-            inputs=[video_in, auto_detect, sharpen, editor_first, moving],
+            inputs=[video_in, auto_detect, sharpen, email_to, app_pw, editor_first, moving],
             outputs=[video_out, status],
         )
 
