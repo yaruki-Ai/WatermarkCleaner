@@ -42,9 +42,10 @@ AUDIO_PATH = WORK_DIR / "audio.m4a"         # audio original extrait
 # Réglages du masque
 # --------------------------------------------------------------------------- #
 
-# Dilatation des bords du rectangle (en pixels) : élargit légèrement la zone
-# masquée pour bien couvrir les contours du filigrane.
-MASK_DILATION = 8
+# Dilatation des bords du rectangle/texte (en pixels) : élargit la zone masquée
+# pour bien couvrir les contours, ombres et anti-crénelage du filigrane.
+# Plus grand = moins de texte résiduel (mais zone repeinte un peu plus large).
+MASK_DILATION = 16
 
 # Flou gaussien appliqué aux bords du masque (noyau impair). 0 = désactivé.
 MASK_BLUR_KERNEL = 9
@@ -61,7 +62,12 @@ MASK_BLUR_KERNEL = 9
 OCR_LANGS = ["en", "fr"]
 
 # Confiance minimale d'une détection de texte pour la masquer (0..1).
-OCR_CONFIDENCE = 0.25
+# Bas = on attrape même les textes faibles/partiels (moins de résidus).
+OCR_CONFIDENCE = 0.15
+
+# Double passe OCR : on scanne aussi une version contrastée de l'image pour
+# repérer les filigranes peu visibles que l'OCR raterait autrement.
+OCR_DOUBLE_PASS = True
 
 # --------------------------------------------------------------------------- #
 # Traitement par segments (qualité préservée, RAM maîtrisée)
@@ -74,9 +80,9 @@ SEGMENT_SIZE = 80
 SEGMENT_OVERLAP = 10
 
 # Plafond de résolution de traitement. Le calcul de flux optique (RAFT) de
-# ProPainter est très gourmand en VRAM : 720 tient sur un T4. Monte (960, 1280)
-# si ça passe et que tu veux plus de qualité ; descends (512) si OOM GPU.
-MAX_PROCESS_SIDE = 720
+# ProPainter est très gourmand en VRAM. 960 = bon piqué et tient en général sur
+# un T4. Descends à 720/512 si OOM GPU ; monte à 1280 si tu as de la marge.
+MAX_PROCESS_SIDE = 960
 
 
 def resize_ratio_for(width: int, height: int) -> float:

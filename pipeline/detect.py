@@ -47,6 +47,30 @@ def release() -> None:
         pass
 
 
+def _enhance(img: np.ndarray) -> np.ndarray:
+    """Renforce le contraste (CLAHE) pour révéler les filigranes peu visibles."""
+    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
+    l = clahe.apply(l)
+    return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+
+
+def _read_all(reader, img: np.ndarray):
+    """Détections OCR sur l'image normale + (option) sa version contrastée."""
+    results = []
+    try:
+        results += reader.readtext(img)
+    except Exception:
+        pass
+    if config.OCR_DOUBLE_PASS:
+        try:
+            results += reader.readtext(_enhance(img))
+        except Exception:
+            pass
+    return results
+
+
 def _refine_mask(mask: np.ndarray) -> np.ndarray:
     """Dilatation + flou des bords, comme pour les masques manuels."""
     if config.MASK_DILATION > 0:
@@ -93,10 +117,7 @@ def detect_text_masks(
     for i, frame_path in enumerate(frames):
         img = cv2.imread(str(frame_path))
         mask = np.zeros((height, width), dtype=np.uint8)
-        try:
-            results = reader.readtext(img)
-        except Exception:
-            results = []
+        results = _read_all(reader, img)
         for box, _text, conf in results:
             if conf < confidence:
                 continue
