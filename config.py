@@ -115,6 +115,14 @@ MAX_SAFE_PIXELS = 3840 * 2160      # 4K
 # Active le mode demi-précision (fp16) sur GPU pour économiser la VRAM.
 USE_FP16 = True
 
+# --------------------------------------------------------------------------- #
+# Amélioration de netteté (Real-ESRGAN) — passe finale optionnelle
+# --------------------------------------------------------------------------- #
+
+# Facteur de sortie : 1.0 = même résolution (resharp), 2.0 = double (plus net,
+# fichier plus gros, plus lent). Real-ESRGAN restaure/affine les zones floues.
+ENHANCE_OUTSCALE = 1.0
+
 
 def ensure_dirs() -> None:
     """Crée tous les dossiers nécessaires (travail + Drive)."""

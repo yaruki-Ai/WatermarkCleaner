@@ -46,7 +46,7 @@ _gcu.get_type = _safe_get_type
 # --------------------------------------------------------------------------- #
 
 import config
-from pipeline import extract, mask, detect, inpaint, assemble
+from pipeline import extract, mask, detect, inpaint, enhance, assemble
 
 
 # --------------------------------------------------------------------------- #
@@ -159,7 +159,7 @@ def on_upload(video_path):
     return _editor_value(_fit_display(_read_rgb(first))), msg
 
 
-def process(video_path, auto_detect, editor_first, moving, progress=gr.Progress()):
+def process(video_path, auto_detect, sharpen, editor_first, moving, progress=gr.Progress()):
     """Pipeline complet, avec barre de progression."""
     if not video_path:
         raise gr.Error("Glisse-dépose une vidéo d'abord.")
@@ -190,16 +190,29 @@ def process(video_path, auto_detect, editor_first, moving, progress=gr.Progress(
     progress(0.27, f"{n} masques générés. Inpainting par segments…")
 
     def pcb(frac, msg):
-        progress(min(0.9, 0.27 + frac * 0.6), msg)
+        progress(min(0.82, 0.27 + frac * 0.55), msg)
 
     frames_dir = inpaint.run_propainter(info, pcb)
 
-    progress(0.93, "Réassemblage + audio original…")
+    note = ""
+    if sharpen:
+        # Passe de netteté non-bloquante : si Real-ESRGAN échoue (install, VRAM),
+        # on garde quand même la vidéo inpaintée.
+        try:
+            progress(0.84, "Amélioration de la netteté (Real-ESRGAN)…")
+            frames_dir = enhance.enhance_frames(
+                frames_dir, progress=lambda f, m: progress(0.84 + f * 0.09, m))
+            enhance.release()
+        except Exception as e:
+            print("⚠️ Real-ESRGAN indisponible, vidéo gardée sans cette passe :", e)
+            note = "\n(⚠️ amélioration de netteté ignorée — voir le log de la cellule)"
+
+    progress(0.95, "Réassemblage + audio original…")
     out_name = Path(video_path).stem + "_clean.mp4"
     final = assemble.finalize(frames_dir, info, out_name)
 
     progress(1.0, "Terminé ✅")
-    status = f"✅ Terminé ! Vidéo nettoyée aussi sauvegardée sur ton Drive :\n`{final}`"
+    status = f"✅ Terminé ! Vidéo nettoyée aussi sauvegardée sur ton Drive :\n`{final}`{note}"
     return final, status
 
 
@@ -239,6 +252,12 @@ def build_ui() -> gr.Blocks:
                 info="Coche si le filigrane bouge. Peins-le bien serré pour un meilleur suivi.",
             )
 
+        sharpen = gr.Checkbox(
+            label="✨ Améliorer la netteté à la fin (Real-ESRGAN)",
+            value=True,
+            info="Réduit le flou des zones nettoyées. Plus lent. Décoche si artefacts.",
+        )
+
         run_btn = gr.Button("2. Lancer le traitement 🚀", variant="primary")
 
         gr.Markdown("### Résultat")
@@ -255,7 +274,7 @@ def build_ui() -> gr.Blocks:
         )
         run_btn.click(
             process,
-            inputs=[video_in, auto_detect, editor_first, moving],
+            inputs=[video_in, auto_detect, sharpen, editor_first, moving],
             outputs=[video_out, status],
         )
 
