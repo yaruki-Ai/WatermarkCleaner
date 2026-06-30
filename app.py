@@ -159,15 +159,19 @@ def on_upload(video_path):
     return _editor_value(_fit_display(_read_rgb(first))), msg
 
 
-def process(video_path, auto_detect, sharpen, email, app_pw,
+def process(video_path, auto_detect, sharpen, ntfy_topic, email, app_pw,
             editor_first, moving, progress=gr.Progress()):
-    """Pipeline complet, avec email de notification optionnel (succès ET échec)."""
+    """Pipeline complet, avec notifications optionnelles (push ntfy + email), succès ET échec."""
     try:
         final, status = _run(video_path, auto_detect, sharpen, editor_first, moving, progress)
     except Exception as e:
+        notify.try_push(ntfy_topic, "WatermarkCleaner: echec",
+                        f"Le traitement a echoue : {e}", success=False)
         notify.try_send(email, app_pw, "❌ WatermarkCleaner — échec",
                         f"Le traitement a échoué :\n\n{e}")
         raise
+    notify.try_push(ntfy_topic, "WatermarkCleaner: termine",
+                    "Ta video nettoyee est prete (aussi sur ton Google Drive).")
     notify.try_send(email, app_pw, "✅ WatermarkCleaner — terminé",
                     f"Ta vidéo nettoyée est prête :\n{final}\n\n"
                     "Elle est aussi dans ton Google Drive (WatermarkCleaner/results).")
@@ -272,7 +276,14 @@ def build_ui() -> gr.Blocks:
             info="Réduit le flou des zones nettoyées. Plus lent. Décoche si artefacts.",
         )
 
-        with gr.Accordion("🔔 Me prévenir par email à la fin (optionnel)", open=False):
+        ntfy_topic = gr.Textbox(
+            label="🔔 Notif push sur ton téléphone à la fin (optionnel)",
+            placeholder="ex. yaruki-wmc-9482  (le nom de salon ntfy auquel tu t'es abonné)",
+            info="Installe l'app ntfy, abonne-toi à un nom de salon, et mets-le ici. "
+                 "Aucun mot de passe. Choisis un nom unique/bizarre.",
+        )
+
+        with gr.Accordion("📧 …ou par email (optionnel, nécessite un mot de passe d'app Gmail)", open=False):
             gr.Markdown(
                 "Reçois un email quand c'est fini (succès **ou** échec). "
                 "Il faut un **« mot de passe d'application » Gmail** "
@@ -300,7 +311,7 @@ def build_ui() -> gr.Blocks:
         )
         run_btn.click(
             process,
-            inputs=[video_in, auto_detect, sharpen, email_to, app_pw, editor_first, moving],
+            inputs=[video_in, auto_detect, sharpen, ntfy_topic, email_to, app_pw, editor_first, moving],
             outputs=[video_out, status],
         )
 
