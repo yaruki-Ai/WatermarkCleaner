@@ -44,7 +44,8 @@ def send_email(gmail_address: str, app_password: str, subject: str, body: str) -
     msg.set_content(body)
 
     ctx = ssl.create_default_context()
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx) as server:
+    # timeout pour ne jamais bloquer le pipeline si le serveur SMTP ne répond pas.
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=ctx, timeout=20) as server:
         server.login(gmail_address, app_password.replace(" ", ""))
         server.send_message(msg)
 

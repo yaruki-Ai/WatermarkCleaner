@@ -161,24 +161,34 @@ def on_upload(video_path):
 
 def process(video_path, auto_detect, sharpen, ntfy_topic, email, app_pw,
             editor_first, moving, progress=gr.Progress()):
-    """Pipeline complet, avec notifications optionnelles (push ntfy + email), succès ET échec."""
+    """Pipeline complet, avec notifications par étape (push ntfy) + email en fin."""
+
+    def ping(title, msg, success=True):
+        # Ding push à chaque étape : si la session Colab meurt, le dernier ding
+        # reçu indique exactement jusqu'où le traitement est allé.
+        notify.try_push(ntfy_topic, title, msg, success=success)
+
+    # Ding de DÉMARRAGE : prouve tout de suite que la notif est branchée pour ce run.
+    ping("WatermarkCleaner: demarre",
+         "Traitement demarre. Tu recevras un ding a chaque etape (et un final).")
+
     try:
-        final, status = _run(video_path, auto_detect, sharpen, editor_first, moving, progress)
+        final, status = _run(video_path, auto_detect, sharpen, editor_first, moving, progress, ping)
     except Exception as e:
-        notify.try_push(ntfy_topic, "WatermarkCleaner: echec",
-                        f"Le traitement a echoue : {e}", success=False)
+        ping("WatermarkCleaner: ECHEC", f"Le traitement a echoue : {e}", success=False)
         notify.try_send(email, app_pw, "❌ WatermarkCleaner — échec",
                         f"Le traitement a échoué :\n\n{e}")
         raise
-    notify.try_push(ntfy_topic, "WatermarkCleaner: termine",
-                    "Ta video nettoyee est prete (aussi sur ton Google Drive).")
+
+    ping("WatermarkCleaner: TERMINE",
+         "Ta video nettoyee est prete (aussi sur ton Google Drive).")
     notify.try_send(email, app_pw, "✅ WatermarkCleaner — terminé",
                     f"Ta vidéo nettoyée est prête :\n{final}\n\n"
                     "Elle est aussi dans ton Google Drive (WatermarkCleaner/results).")
     return final, status
 
 
-def _run(video_path, auto_detect, sharpen, editor_first, moving, progress):
+def _run(video_path, auto_detect, sharpen, editor_first, moving, progress, ping=lambda *a, **k: None):
     if not video_path:
         raise gr.Error("Glisse-dépose une vidéo d'abord.")
 
@@ -206,11 +216,14 @@ def _run(video_path, auto_detect, sharpen, editor_first, moving, progress):
                  else "Génération des masques…")
         n = mask.generate_masks(rect0, track=bool(moving))
     progress(0.27, f"{n} masques générés. Inpainting par segments…")
+    ping("WatermarkCleaner: etape 1 OK",
+         f"{n} zones detectees et masquees. Inpainting en cours (etape la plus longue).")
 
     def pcb(frac, msg):
         progress(min(0.82, 0.27 + frac * 0.55), msg)
 
     frames_dir = inpaint.run_propainter(info, pcb)
+    ping("WatermarkCleaner: etape 2 OK", "Inpainting termine.")
 
     note = ""
     if sharpen:
@@ -221,6 +234,7 @@ def _run(video_path, auto_detect, sharpen, editor_first, moving, progress):
             frames_dir = enhance.enhance_frames(
                 frames_dir, progress=lambda f, m: progress(0.84 + f * 0.09, m))
             enhance.release()
+            ping("WatermarkCleaner: etape 3 OK", "Amelioration de nettete terminee.")
         except Exception as e:
             print("⚠️ Real-ESRGAN indisponible, vidéo gardée sans cette passe :", e)
             note = "\n(⚠️ amélioration de netteté ignorée — voir le log de la cellule)"
